@@ -1,0 +1,8 @@
+/target/
+/data/*
+!/data/.gitkeep
+/traces/*
+!/traces/.gitkeep
+/results/*
+!/results/.gitkeep
+*.log

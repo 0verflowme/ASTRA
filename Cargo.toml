@@ -1,0 +1,10 @@
+[package]
+name = "astra-sim"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "Phase 1 simulator for ASTRA sparse algebra switch reduce-cache traffic"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
