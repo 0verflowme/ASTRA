@@ -14,6 +14,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
+use serde::Serialize;
 
 use crate::{
     bvgraph_reader::stream_bvgraph,
@@ -59,6 +60,8 @@ enum Commands {
         limit_edges: Option<u64>,
         #[arg(long)]
         progress_every: Option<u64>,
+        #[arg(long)]
+        json: Option<PathBuf>,
     },
     RunBvgraph {
         #[arg(long)]
@@ -81,6 +84,8 @@ enum Commands {
         limit_edges: Option<u64>,
         #[arg(long)]
         progress_every: Option<u64>,
+        #[arg(long)]
+        json: Option<PathBuf>,
     },
     GenTrace {
         #[arg(long)]
@@ -129,6 +134,8 @@ enum Commands {
         ways: usize,
         #[arg(long)]
         progress_every: Option<u64>,
+        #[arg(long)]
+        json: Option<PathBuf>,
     },
 }
 
@@ -162,6 +169,7 @@ fn main() -> Result<()> {
             ways,
             limit_edges,
             progress_every,
+            json,
         } => run_edge_stream(RunConfig {
             edge_list,
             grid,
@@ -171,6 +179,7 @@ fn main() -> Result<()> {
             switch: SwitchConfig { stages, sets, ways },
             limit_edges,
             progress_every,
+            json,
         }),
         Commands::RunBvgraph {
             basename,
@@ -183,6 +192,7 @@ fn main() -> Result<()> {
             ways,
             limit_edges,
             progress_every,
+            json,
         } => run_bvgraph_stream(BvRunConfig {
             basename,
             grid,
@@ -192,6 +202,7 @@ fn main() -> Result<()> {
             switch: SwitchConfig { stages, sets, ways },
             limit_edges,
             progress_every,
+            json,
         }),
         Commands::GenTrace {
             edge_list,
@@ -237,10 +248,12 @@ fn main() -> Result<()> {
             sets,
             ways,
             progress_every,
+            json,
         } => simulate_trace(SimConfig {
             trace,
             switch: SwitchConfig { stages, sets, ways },
             progress_every,
+            json,
         }),
     }
 }
@@ -255,6 +268,7 @@ struct RunConfig {
     switch: SwitchConfig,
     limit_edges: Option<u64>,
     progress_every: Option<u64>,
+    json: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -279,6 +293,7 @@ struct BvRunConfig {
     switch: SwitchConfig,
     limit_edges: Option<u64>,
     progress_every: Option<u64>,
+    json: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -298,6 +313,7 @@ struct SimConfig {
     trace: PathBuf,
     switch: SwitchConfig,
     progress_every: Option<u64>,
+    json: Option<PathBuf>,
 }
 
 fn write_smoke_graph(out: &Path) -> Result<()> {
@@ -352,6 +368,23 @@ fn run_edge_stream(config: RunConfig) -> Result<()> {
     println!();
     println!("--- FINAL SWITCH METRICS ---");
     print_metrics(switch.metrics(), config.switch, config.grid, config.lanes);
+    if let Some(json) = config.json {
+        let report = JsonReport::edge_stream(
+            JsonCommon::new(
+                config.edge_list.display().to_string(),
+                config.target.name(),
+                config.grid,
+                config.lanes,
+                config.switch,
+            ),
+            JsonEdgeStreamStats {
+                edges_read: edge_stats.edges_read,
+                skipped_lines: edge_stats.skipped_lines,
+            },
+            switch.metrics(),
+        );
+        write_json_report(&json, &report)?;
+    }
     Ok(())
 }
 
@@ -418,6 +451,24 @@ fn run_bvgraph_stream(config: BvRunConfig) -> Result<()> {
     println!();
     println!("--- FINAL SWITCH METRICS ---");
     print_metrics(switch.metrics(), config.switch, config.grid, config.lanes);
+    if let Some(json) = config.json {
+        let report = JsonReport::bvgraph_stream(
+            JsonCommon::new(
+                config.basename.display().to_string(),
+                config.target.name(),
+                config.grid,
+                config.lanes,
+                config.switch,
+            ),
+            JsonBvGraphStats {
+                nodes: graph_stats.nodes,
+                arcs_hint: graph_stats.arcs_hint,
+                edges_read: graph_stats.edges_read,
+            },
+            switch.metrics(),
+        );
+        write_json_report(&json, &report)?;
+    }
     Ok(())
 }
 
@@ -491,6 +542,23 @@ fn simulate_trace(config: SimConfig) -> Result<()> {
     println!();
     println!("--- FINAL SWITCH METRICS ---");
     print_metrics(switch.metrics(), config.switch, header.grid, header.lanes);
+    if let Some(json) = config.json {
+        let report = JsonReport::trace(
+            JsonCommon::new(
+                config.trace.display().to_string(),
+                header.target.name(),
+                header.grid,
+                header.lanes,
+                config.switch,
+            ),
+            JsonTraceStats {
+                trace_packet_count: header.packet_count,
+                packets_read,
+            },
+            switch.metrics(),
+        );
+        write_json_report(&json, &report)?;
+    }
     Ok(())
 }
 
@@ -527,4 +595,207 @@ fn print_metrics(metrics: &Metrics, switch: SwitchConfig, grid: u64, lanes: u64)
     println!("owner_queue_chips={}", metrics.owner_queue().len());
     println!("owner_queue_max={}", metrics.owner_queue_max());
     println!("owner_queue_mean={:.6}", metrics.owner_queue_mean());
+}
+
+#[derive(Debug, Serialize)]
+struct JsonReport {
+    mode: &'static str,
+    input: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edges_read: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    skipped_lines: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nodes: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    arcs_hint: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trace_packet_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    packets_read: Option<u64>,
+    grid: u64,
+    lanes: u64,
+    switch: JsonSwitchConfig,
+    metrics: JsonMetrics,
+}
+
+#[derive(Debug, Serialize)]
+struct JsonSwitchConfig {
+    stages: usize,
+    sets: usize,
+    ways: usize,
+    entries: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct JsonMetrics {
+    packets_in: u64,
+    packets_out: u64,
+    table_hits: u64,
+    external_hits: u64,
+    internal_merge_hits: u64,
+    admitted: u64,
+    bypassed: u64,
+    eviction_swaps: u64,
+    eviction_flushes: u64,
+    drained: u64,
+    packets_out_accounted: u64,
+    hit_rate: f64,
+    external_hit_rate: f64,
+    total_merge_rate: f64,
+    bypass_rate: f64,
+    compression: f64,
+    owner_queue_chips: usize,
+    owner_queue_max: u64,
+    owner_queue_mean: f64,
+}
+
+#[derive(Debug)]
+struct JsonCommon {
+    input: String,
+    target: String,
+    grid: u64,
+    lanes: u64,
+    switch: SwitchConfig,
+}
+
+#[derive(Debug)]
+struct JsonEdgeStreamStats {
+    edges_read: u64,
+    skipped_lines: u64,
+}
+
+#[derive(Debug)]
+struct JsonBvGraphStats {
+    nodes: usize,
+    arcs_hint: Option<u64>,
+    edges_read: u64,
+}
+
+#[derive(Debug)]
+struct JsonTraceStats {
+    trace_packet_count: u64,
+    packets_read: u64,
+}
+
+impl JsonCommon {
+    fn new(input: String, target: &str, grid: u64, lanes: u64, switch: SwitchConfig) -> Self {
+        Self {
+            input,
+            target: target.to_owned(),
+            grid,
+            lanes,
+            switch,
+        }
+    }
+}
+
+impl JsonReport {
+    fn edge_stream(common: JsonCommon, stats: JsonEdgeStreamStats, metrics: &Metrics) -> Self {
+        Self {
+            mode: "edge_stream",
+            input: common.input,
+            target: Some(common.target),
+            edges_read: Some(stats.edges_read),
+            skipped_lines: Some(stats.skipped_lines),
+            nodes: None,
+            arcs_hint: None,
+            trace_packet_count: None,
+            packets_read: None,
+            grid: common.grid,
+            lanes: common.lanes,
+            switch: JsonSwitchConfig::from_switch(common.switch),
+            metrics: JsonMetrics::from_metrics(metrics),
+        }
+    }
+
+    fn bvgraph_stream(common: JsonCommon, stats: JsonBvGraphStats, metrics: &Metrics) -> Self {
+        Self {
+            mode: "bvgraph_stream",
+            input: common.input,
+            target: Some(common.target),
+            edges_read: Some(stats.edges_read),
+            skipped_lines: None,
+            nodes: Some(stats.nodes),
+            arcs_hint: stats.arcs_hint,
+            trace_packet_count: None,
+            packets_read: None,
+            grid: common.grid,
+            lanes: common.lanes,
+            switch: JsonSwitchConfig::from_switch(common.switch),
+            metrics: JsonMetrics::from_metrics(metrics),
+        }
+    }
+
+    fn trace(common: JsonCommon, stats: JsonTraceStats, metrics: &Metrics) -> Self {
+        Self {
+            mode: "trace",
+            input: common.input,
+            target: Some(common.target),
+            edges_read: None,
+            skipped_lines: None,
+            nodes: None,
+            arcs_hint: None,
+            trace_packet_count: (stats.trace_packet_count != UNKNOWN_PACKET_COUNT)
+                .then_some(stats.trace_packet_count),
+            packets_read: Some(stats.packets_read),
+            grid: common.grid,
+            lanes: common.lanes,
+            switch: JsonSwitchConfig::from_switch(common.switch),
+            metrics: JsonMetrics::from_metrics(metrics),
+        }
+    }
+}
+
+impl JsonSwitchConfig {
+    fn from_switch(switch: SwitchConfig) -> Self {
+        Self {
+            stages: switch.stages,
+            sets: switch.sets,
+            ways: switch.ways,
+            entries: switch.entries(),
+        }
+    }
+}
+
+impl JsonMetrics {
+    fn from_metrics(metrics: &Metrics) -> Self {
+        Self {
+            packets_in: metrics.packets_in,
+            packets_out: metrics.packets_out,
+            table_hits: metrics.table_hits(),
+            external_hits: metrics.external_hits,
+            internal_merge_hits: metrics.internal_merge_hits,
+            admitted: metrics.admitted,
+            bypassed: metrics.bypassed,
+            eviction_swaps: metrics.eviction_swaps,
+            eviction_flushes: metrics.eviction_flushes,
+            drained: metrics.drained,
+            packets_out_accounted: metrics.packets_out_accounted(),
+            hit_rate: metrics.hit_rate(),
+            external_hit_rate: metrics.external_hit_rate(),
+            total_merge_rate: metrics.total_merge_rate(),
+            bypass_rate: metrics.bypass_rate(),
+            compression: metrics.compression(),
+            owner_queue_chips: metrics.owner_queue().len(),
+            owner_queue_max: metrics.owner_queue_max(),
+            owner_queue_mean: metrics.owner_queue_mean(),
+        }
+    }
+}
+
+fn write_json_report(path: &Path, report: &JsonReport) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create JSON report parent {}", parent.display()))?;
+    }
+
+    let file =
+        File::create(path).with_context(|| format!("create JSON report {}", path.display()))?;
+    serde_json::to_writer_pretty(file, report)
+        .with_context(|| format!("write JSON report {}", path.display()))?;
+    println!("json={}", path.display());
+    Ok(())
 }

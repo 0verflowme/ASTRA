@@ -26,3 +26,6 @@ Accounting check:
 packets_out == bypassed + eviction_flushes + drained
 table_hits == external_hits + internal_merge_hits
 ```
+
+For sweep automation, run commands with `--json results/<name>.json` or set
+`JSON_DIR=results/json` when using the provided sweep scripts.

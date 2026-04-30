@@ -27,7 +27,8 @@ cargo run --release -- run \
   --stages 4 \
   --sets 4096 \
   --ways 4 \
-  --progress-every 10000000
+  --progress-every 10000000 \
+  --json results/twitter2010_100m_sets4096.json
 ```
 
 ## Direct BVGraph Streaming
@@ -45,7 +46,8 @@ cargo run --release -- run-bvgraph \
   --sets 4096 \
   --ways 4 \
   --limit-edges 100000000 \
-  --progress-every 10000000
+  --progress-every 10000000 \
+  --json results/twitter2010_bvgraph_100m_sets4096.json
 ```
 
 ## Generate and Simulate a Trace
@@ -59,7 +61,8 @@ cargo run --release -- simulate \
   --trace traces/smoke.bin \
   --stages 4 \
   --sets 4096 \
-  --ways 4
+  --ways 4 \
+  --json results/smoke_trace.json
 ```
 
 BVGraph traces are generated directly from compressed graph files:
@@ -106,6 +109,9 @@ owner_queue_mean
 `hit_rate` is the external incoming-packet hit rate. `table_hits` is the total
 of external hits plus internal merge hits caused by evicted aggregates merging
 downstream.
+
+`run`, `run-bvgraph`, and `simulate` accept `--json PATH` to write the same
+report as structured JSON for plotting and sweep automation.
 
 ## Phase 1 Scope
 

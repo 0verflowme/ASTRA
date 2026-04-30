@@ -123,6 +123,8 @@ dependencies = [
  "clap",
  "dsi-bitstream",
  "lender",
+ "serde",
+ "serde_json",
  "tempfile",
  "webgraph",
 ]
