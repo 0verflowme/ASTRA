@@ -1,3 +1,4 @@
+mod bvgraph_reader;
 mod edge_reader;
 mod metrics;
 mod model;
@@ -15,6 +16,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::{
+    bvgraph_reader::stream_bvgraph,
     edge_reader::{stream_edge_list, Edge},
     metrics::Metrics,
     model::{make_bfs_packet, validate_lanes, EdgeTarget, DEFAULT_GRID, DEFAULT_LANES},
@@ -58,9 +60,49 @@ enum Commands {
         #[arg(long)]
         progress_every: Option<u64>,
     },
+    RunBvgraph {
+        #[arg(long)]
+        basename: PathBuf,
+        #[arg(long, default_value_t = DEFAULT_GRID)]
+        grid: u64,
+        #[arg(long, default_value_t = DEFAULT_LANES)]
+        lanes: u64,
+        #[arg(long, default_value_t = 1)]
+        epoch: u16,
+        #[arg(long, value_enum, default_value_t = TargetArg::Dst)]
+        target: TargetArg,
+        #[arg(long, default_value_t = 4)]
+        stages: usize,
+        #[arg(long, default_value_t = 4096)]
+        sets: usize,
+        #[arg(long, default_value_t = 4)]
+        ways: usize,
+        #[arg(long)]
+        limit_edges: Option<u64>,
+        #[arg(long)]
+        progress_every: Option<u64>,
+    },
     GenTrace {
         #[arg(long)]
         edge_list: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value_t = DEFAULT_GRID)]
+        grid: u64,
+        #[arg(long, default_value_t = DEFAULT_LANES)]
+        lanes: u64,
+        #[arg(long, default_value_t = 1)]
+        epoch: u16,
+        #[arg(long, value_enum, default_value_t = TargetArg::Dst)]
+        target: TargetArg,
+        #[arg(long)]
+        limit_edges: Option<u64>,
+        #[arg(long)]
+        progress_every: Option<u64>,
+    },
+    GenTraceBvgraph {
+        #[arg(long)]
+        basename: PathBuf,
         #[arg(long)]
         out: PathBuf,
         #[arg(long, default_value_t = DEFAULT_GRID)]
@@ -130,6 +172,27 @@ fn main() -> Result<()> {
             limit_edges,
             progress_every,
         }),
+        Commands::RunBvgraph {
+            basename,
+            grid,
+            lanes,
+            epoch,
+            target,
+            stages,
+            sets,
+            ways,
+            limit_edges,
+            progress_every,
+        } => run_bvgraph_stream(BvRunConfig {
+            basename,
+            grid,
+            lanes,
+            epoch,
+            target: target.into(),
+            switch: SwitchConfig { stages, sets, ways },
+            limit_edges,
+            progress_every,
+        }),
         Commands::GenTrace {
             edge_list,
             out,
@@ -141,6 +204,25 @@ fn main() -> Result<()> {
             progress_every,
         } => gen_trace(GenTraceConfig {
             edge_list,
+            out,
+            grid,
+            lanes,
+            epoch,
+            target: target.into(),
+            limit_edges,
+            progress_every,
+        }),
+        Commands::GenTraceBvgraph {
+            basename,
+            out,
+            grid,
+            lanes,
+            epoch,
+            target,
+            limit_edges,
+            progress_every,
+        } => gen_trace_bvgraph(BvGenTraceConfig {
+            basename,
             out,
             grid,
             lanes,
@@ -178,6 +260,30 @@ struct RunConfig {
 #[derive(Debug)]
 struct GenTraceConfig {
     edge_list: PathBuf,
+    out: PathBuf,
+    grid: u64,
+    lanes: u64,
+    epoch: u16,
+    target: EdgeTarget,
+    limit_edges: Option<u64>,
+    progress_every: Option<u64>,
+}
+
+#[derive(Debug)]
+struct BvRunConfig {
+    basename: PathBuf,
+    grid: u64,
+    lanes: u64,
+    epoch: u16,
+    target: EdgeTarget,
+    switch: SwitchConfig,
+    limit_edges: Option<u64>,
+    progress_every: Option<u64>,
+}
+
+#[derive(Debug)]
+struct BvGenTraceConfig {
+    basename: PathBuf,
     out: PathBuf,
     grid: u64,
     lanes: u64,
@@ -277,6 +383,76 @@ fn gen_trace(config: GenTraceConfig) -> Result<()> {
     println!("edges_read={}", edge_stats.edges_read);
     println!("packets_generated={packet_count}");
     println!("skipped_lines={}", edge_stats.skipped_lines);
+    Ok(())
+}
+
+fn run_bvgraph_stream(config: BvRunConfig) -> Result<()> {
+    validate_lanes(config.lanes)?;
+    validate_grid(config.grid)?;
+    let owner_count = owner_count(config.grid)?;
+    let mut switch = ReduceSwitch::new(config.switch, owner_count)?;
+
+    let graph_stats = stream_bvgraph(
+        &config.basename,
+        config.limit_edges,
+        config.progress_every,
+        |edge| {
+            let vertex = select_vertex(edge, config.target);
+            let packet = make_bfs_packet(vertex, config.epoch, config.lanes, config.grid)?;
+            switch.process(packet)
+        },
+    )?;
+    switch.drain()?;
+
+    println!("--- BVGRAPH STREAM STATS ---");
+    println!("mode=bvgraph_stream");
+    println!("basename={}", config.basename.display());
+    println!("target={}", config.target.name());
+    println!("nodes={}", graph_stats.nodes);
+    match graph_stats.arcs_hint {
+        Some(arcs) => println!("arcs_hint={arcs}"),
+        None => println!("arcs_hint=unknown"),
+    }
+    println!("edges_read={}", graph_stats.edges_read);
+    println!("packets_generated={}", graph_stats.edges_read);
+    println!();
+    println!("--- FINAL SWITCH METRICS ---");
+    print_metrics(switch.metrics(), config.switch, config.grid, config.lanes);
+    Ok(())
+}
+
+fn gen_trace_bvgraph(config: BvGenTraceConfig) -> Result<()> {
+    validate_lanes(config.lanes)?;
+    validate_grid(config.grid)?;
+    let header = TraceHeader::new(config.lanes, config.grid, config.epoch, config.target)?;
+    let mut writer = TraceWriter::create(&config.out, header)?;
+
+    let graph_stats = stream_bvgraph(
+        &config.basename,
+        config.limit_edges,
+        config.progress_every,
+        |edge| {
+            let vertex = select_vertex(edge, config.target);
+            let packet = make_bfs_packet(vertex, config.epoch, config.lanes, config.grid)?;
+            writer.write_packet(packet)
+        },
+    )?;
+    let packet_count = writer.finish()?;
+
+    println!("mode=gen_trace_bvgraph");
+    println!("basename={}", config.basename.display());
+    println!("trace={}", config.out.display());
+    println!("target={}", config.target.name());
+    println!("grid={}", config.grid);
+    println!("lanes={}", config.lanes);
+    println!("epoch={}", config.epoch);
+    println!("nodes={}", graph_stats.nodes);
+    match graph_stats.arcs_hint {
+        Some(arcs) => println!("arcs_hint={arcs}"),
+        None => println!("arcs_hint=unknown"),
+    }
+    println!("edges_read={}", graph_stats.edges_read);
+    println!("packets_generated={packet_count}");
     Ok(())
 }
 

@@ -13,12 +13,19 @@ mask  = 1 << (vertex % lanes)
 value = unused
 ```
 
-The input is a whitespace-separated edge list:
+The input can be a whitespace-separated edge list:
 
 ```text
 src dst
 src dst
 ...
+```
+
+or a sequential BVGraph basename with companion files:
+
+```text
+BASENAME.graph
+BASENAME.properties
 ```
 
 The default target is `dst`.
@@ -97,6 +104,18 @@ cargo run --release -- run --edge-list data/smoke.edgelist
 ```bash
 cargo run --release -- run \
   --edge-list data/twitter-2010/twitter-2010-t.txt \
+  --limit-edges 100000000 \
+  --sets 4096 \
+  --ways 4 \
+  --stages 4 \
+  --progress-every 10000000
+```
+
+Preferred compressed-graph path:
+
+```bash
+cargo run --release -- run-bvgraph \
+  --basename data/twitter-2010/twitter-2010-t \
   --limit-edges 100000000 \
   --sets 4096 \
   --ways 4 \

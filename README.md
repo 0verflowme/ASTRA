@@ -30,6 +30,24 @@ cargo run --release -- run \
   --progress-every 10000000
 ```
 
+## Direct BVGraph Streaming
+
+Sequential BVGraph streaming avoids materializing a huge text edge list. The basename is the path without the `.graph` or `.properties` extension:
+
+```bash
+cargo run --release -- run-bvgraph \
+  --basename data/twitter-2010/twitter-2010-t \
+  --grid 8 \
+  --lanes 64 \
+  --epoch 1 \
+  --target dst \
+  --stages 4 \
+  --sets 4096 \
+  --ways 4 \
+  --limit-edges 100000000 \
+  --progress-every 10000000
+```
+
 ## Generate and Simulate a Trace
 
 ```bash
@@ -42,6 +60,16 @@ cargo run --release -- simulate \
   --stages 4 \
   --sets 4096 \
   --ways 4
+```
+
+BVGraph traces are generated directly from compressed graph files:
+
+```bash
+cargo run --release -- gen-trace-bvgraph \
+  --basename data/twitter-2010/twitter-2010-t \
+  --out traces/twitter2010_t_bfs_orand.bin \
+  --limit-edges 100000000 \
+  --progress-every 10000000
 ```
 
 ## Metrics
@@ -76,6 +104,7 @@ owner_queue_mean
 Implemented:
 
 - Text edge-list streaming.
+- Sequential BVGraph streaming from `.graph` and `.properties`.
 - BFS-style packet generation.
 - OR reduction over 64-bit lane masks.
 - Deterministic owner mapping and switch set hashing.
@@ -86,7 +115,6 @@ Implemented:
 Deferred:
 
 - Real BFS frontier and visited filtering.
-- Direct compressed WebGraph reading.
 - Min-plus and other semiring reductions.
 - NIC coalescing and watermarks.
 - Multi-switch topology.

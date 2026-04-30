@@ -12,8 +12,8 @@ wget -c https://data.law.di.unimi.it/webdata/twitter-2010/twitter-2010.indegree
 cat <<'EOF'
 Downloaded compressed WebGraph files.
 
-Phase 1 expects a text edge list at:
-  data/twitter-2010/twitter-2010-t.txt
+Run the compressed graph directly with:
+  cargo run --release -- run-bvgraph --basename data/twitter-2010/twitter-2010-t --limit-edges 100000000 --progress-every 10000000
 
-Direct compressed WebGraph reading is deferred to Phase 1.5.
+Sequential BVGraph streaming requires .graph and .properties only. It does not require a .ef random-access index.
 EOF

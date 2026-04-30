@@ -8,3 +8,9 @@ description = "Phase 1 simulator for ASTRA sparse algebra switch reduce-cache tr
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+lender = "0.6"
+webgraph = "0.6.1"
+
+[dev-dependencies]
+dsi-bitstream = "0.7"
+tempfile = "3"
