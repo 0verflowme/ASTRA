@@ -50,9 +50,9 @@ empty:
     admit packet
 
 full:
-    compare score
-    keep hotter entry
-    push colder packet or aggregate to next stage
+    keep resident entry unless carried entry has proven more reuse
+    push evicted aggregate to next stage only on strict hit-count win
+    otherwise continue carrying the incoming packet or aggregate
 
 leaves final stage:
     count as packets_out
@@ -63,6 +63,10 @@ end:
 ```
 
 Overflow only reduces compression. It does not change correctness because emitted aggregates are still delivered to the owner chip.
+
+The default replacement policy is cold-bypass: a brand-new cold key does not evict
+an equally cold resident solely because it is newer. This keeps the reduce cache
+biased toward keys with observed reuse rather than recency churn.
 
 ## Determinism
 

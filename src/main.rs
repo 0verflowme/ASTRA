@@ -510,7 +510,9 @@ fn print_metrics(metrics: &Metrics, switch: SwitchConfig, grid: u64, lanes: u64)
     println!("entries={}", switch.entries());
     println!("packets_in={}", metrics.packets_in);
     println!("packets_out={}", metrics.packets_out);
-    println!("table_hits={}", metrics.table_hits);
+    println!("table_hits={}", metrics.table_hits());
+    println!("external_hits={}", metrics.external_hits);
+    println!("internal_merge_hits={}", metrics.internal_merge_hits);
     println!("admitted={}", metrics.admitted);
     println!("bypassed={}", metrics.bypassed);
     println!("eviction_swaps={}", metrics.eviction_swaps);
@@ -518,6 +520,8 @@ fn print_metrics(metrics: &Metrics, switch: SwitchConfig, grid: u64, lanes: u64)
     println!("drained={}", metrics.drained);
     println!("packets_out_accounted={}", metrics.packets_out_accounted());
     println!("hit_rate={:.6}", metrics.hit_rate());
+    println!("external_hit_rate={:.6}", metrics.external_hit_rate());
+    println!("total_merge_rate={:.6}", metrics.total_merge_rate());
     println!("bypass_rate={:.6}", metrics.bypass_rate());
     println!("compression={:.6}", metrics.compression());
     println!("owner_queue_chips={}", metrics.owner_queue().len());

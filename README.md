@@ -87,17 +87,25 @@ Important outputs:
 packets_in
 packets_out
 table_hits
+external_hits
+internal_merge_hits
 admitted
 bypassed
 eviction_swaps
 eviction_flushes
 drained
 hit_rate
+external_hit_rate
+total_merge_rate
 bypass_rate
 compression
 owner_queue_max
 owner_queue_mean
 ```
+
+`hit_rate` is the external incoming-packet hit rate. `table_hits` is the total
+of external hits plus internal merge hits caused by evicted aggregates merging
+downstream.
 
 ## Phase 1 Scope
 
@@ -118,3 +126,8 @@ Deferred:
 - Min-plus and other semiring reductions.
 - NIC coalescing and watermarks.
 - Multi-switch topology.
+
+## License
+
+ASTRA-Sim is licensed under either MIT or Apache-2.0, at your option. See
+`LICENSE-MIT` and `LICENSE-APACHE`.

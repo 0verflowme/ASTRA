@@ -6,7 +6,8 @@ use crate::model::Packet;
 pub struct Metrics {
     pub packets_in: u64,
     pub packets_out: u64,
-    pub table_hits: u64,
+    pub external_hits: u64,
+    pub internal_merge_hits: u64,
     pub admitted: u64,
     pub bypassed: u64,
     pub eviction_swaps: u64,
@@ -20,7 +21,8 @@ impl Metrics {
         Self {
             packets_in: 0,
             packets_out: 0,
-            table_hits: 0,
+            external_hits: 0,
+            internal_merge_hits: 0,
             admitted: 0,
             bypassed: 0,
             eviction_swaps: 0,
@@ -34,8 +36,12 @@ impl Metrics {
         self.packets_in = self.packets_in.saturating_add(1);
     }
 
-    pub fn record_hit(&mut self) {
-        self.table_hits = self.table_hits.saturating_add(1);
+    pub fn record_external_hit(&mut self) {
+        self.external_hits = self.external_hits.saturating_add(1);
+    }
+
+    pub fn record_internal_merge_hit(&mut self) {
+        self.internal_merge_hits = self.internal_merge_hits.saturating_add(1);
     }
 
     pub fn record_admit(&mut self) {
@@ -75,8 +81,20 @@ impl Metrics {
         Ok(())
     }
 
+    pub fn table_hits(&self) -> u64 {
+        self.external_hits + self.internal_merge_hits
+    }
+
+    pub fn external_hit_rate(&self) -> f64 {
+        self.external_hits as f64 / self.packets_in.max(1) as f64
+    }
+
+    pub fn total_merge_rate(&self) -> f64 {
+        self.table_hits() as f64 / self.packets_in.max(1) as f64
+    }
+
     pub fn hit_rate(&self) -> f64 {
-        self.table_hits as f64 / self.packets_in.max(1) as f64
+        self.external_hit_rate()
     }
 
     pub fn bypass_rate(&self) -> f64 {
@@ -138,5 +156,21 @@ mod tests {
         assert_eq!(metrics.packets_out, metrics.packets_out_accounted());
         assert_eq!(metrics.owner_queue_max(), 1);
         assert_eq!(metrics.owner_queue_mean(), 0.75);
+    }
+
+    #[test]
+    fn separates_external_and_internal_hits() {
+        let mut metrics = Metrics::new(1);
+        metrics.record_input();
+        metrics.record_input();
+        metrics.record_external_hit();
+        metrics.record_internal_merge_hit();
+
+        assert_eq!(metrics.external_hits, 1);
+        assert_eq!(metrics.internal_merge_hits, 1);
+        assert_eq!(metrics.table_hits(), 2);
+        assert_eq!(metrics.external_hit_rate(), 0.5);
+        assert_eq!(metrics.total_merge_rate(), 1.0);
+        assert_eq!(metrics.hit_rate(), metrics.external_hit_rate());
     }
 }

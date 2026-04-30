@@ -67,12 +67,8 @@ impl Entry {
         }
     }
 
-    fn score(self) -> (u8, u64) {
-        if self.pinned {
-            (u8::MAX, u64::MAX)
-        } else {
-            (self.hits, self.age)
-        }
+    fn victim_score(self) -> (u8, u64) {
+        (self.hits, self.age)
     }
 }
 
@@ -126,7 +122,10 @@ impl ReduceSwitch {
                     .expect("hit index must contain an entry");
                 reduce_or(resident, carry.entry)?;
                 resident.age = self.clock;
-                self.metrics.record_hit();
+                match carry.kind {
+                    CarryKind::Incoming => self.metrics.record_external_hit(),
+                    CarryKind::Evicted => self.metrics.record_internal_merge_hit(),
+                }
                 return Ok(());
             }
 
@@ -140,7 +139,7 @@ impl ReduceSwitch {
                 continue;
             };
             let victim = self.table[victim_index].expect("victim index must contain an entry");
-            if carry.entry.score() > victim.score() {
+            if should_replace(carry.entry, victim) {
                 self.table[victim_index] = Some(carry.entry);
                 carry = Carry {
                     entry: victim,
@@ -189,8 +188,24 @@ impl ReduceSwitch {
         (0..self.config.ways)
             .map(|way| self.index(stage, set, way))
             .filter(|&idx| self.table[idx].is_some_and(|entry| !entry.pinned))
-            .min_by_key(|&idx| self.table[idx].expect("victim candidate exists").score())
+            .min_by_key(|&idx| {
+                self.table[idx]
+                    .expect("victim candidate exists")
+                    .victim_score()
+            })
     }
+}
+
+fn should_replace(incoming: Entry, victim: Entry) -> bool {
+    if victim.pinned {
+        return false;
+    }
+
+    if incoming.pinned {
+        return true;
+    }
+
+    incoming.hits > victim.hits
 }
 
 fn reduce_or(entry: &mut Entry, incoming: Entry) -> Result<()> {
@@ -238,7 +253,9 @@ mod tests {
 
         let metrics = switch.metrics();
         assert_eq!(metrics.packets_in, 2);
-        assert_eq!(metrics.table_hits, 1);
+        assert_eq!(metrics.external_hits, 1);
+        assert_eq!(metrics.internal_merge_hits, 0);
+        assert_eq!(metrics.table_hits(), 1);
         assert_eq!(metrics.drained, 1);
         assert_eq!(metrics.packets_out, 1);
         assert_eq!(metrics.packets_out, metrics.packets_out_accounted());
@@ -261,6 +278,9 @@ mod tests {
         switch.drain().unwrap();
 
         let metrics = switch.metrics();
+        assert_eq!(metrics.bypassed, 1);
+        assert_eq!(metrics.eviction_flushes, 0);
+        assert_eq!(metrics.drained, 1);
         assert_eq!(
             metrics.bypassed + metrics.eviction_flushes + metrics.drained,
             metrics.packets_out
@@ -282,5 +302,22 @@ mod tests {
         let mut plus = packet(0, 1);
         plus.key.op = Op::Plus;
         assert!(switch.process(plus).is_err());
+    }
+
+    #[test]
+    fn cold_key_does_not_replace_equal_hit_resident() {
+        let resident = Entry::from_packet(packet(0, 1), 1);
+        let incoming = Entry::from_packet(packet(1, 1), 2);
+
+        assert!(!should_replace(incoming, resident));
+    }
+
+    #[test]
+    fn hotter_entry_replaces_cold_resident() {
+        let resident = Entry::from_packet(packet(0, 1), 1);
+        let mut incoming = Entry::from_packet(packet(1, 1), 2);
+        incoming.hits = 1;
+
+        assert!(should_replace(incoming, resident));
     }
 }
